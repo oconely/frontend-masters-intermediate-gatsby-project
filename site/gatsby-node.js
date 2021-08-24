@@ -1,9 +1,22 @@
+const fetch = require('node-fetch');
+const { createRemoteFileNode } = require('gatsby-source-filesystem');
+
 const authors = require('./src/data/authors.json');
 const books = require('./src/data/books.json');
 
 // load up data to a Gatsby
 exports.sourceNodes = ({ actions, createNodeId, createContentDigest }) => {
-  const { createNode } = actions;
+  const { createNode, createTypes } = actions;
+
+  createTypes(`
+     type Author implements Node {
+       books: [Book!]! @link(from: "slug" by: "author.slug")
+     }
+
+     type Book implements Node {
+       author: Author! @link(from: "author" by: "slug")
+     }
+    `);
 
   authors.forEach((author) => {
     createNode({
@@ -46,4 +59,57 @@ exports.createPages = ({ actions }) => {
       },
     },
   });
+};
+
+exports.createResolvers = ({
+  actions,
+  cache,
+  createNodeId,
+  store,
+  reporter,
+  createResolvers,
+}) => {
+  const { createNode } = actions;
+
+  const resolvers = {
+    Book: {
+      buyLink: {
+        type: 'String',
+        resolve: (source) =>
+          `https://www.powells.com/searchresults?keyword=${source.isbn}`,
+      },
+      cover: {
+        type: 'File',
+        resolve: async (source) => {
+          const response = await fetch(
+            `https://openlibrary.org/isbn/${source.isbn}.json`,
+          );
+
+          if (!response.ok) {
+            reporter.warn(
+              `Error loading details about ${source.name}} - got ${response.status} ${response.statusText}`,
+            );
+            return null;
+          }
+
+          const { covers } = await response.json();
+
+          if (covers.length) {
+            return createRemoteFileNode({
+              url: `https://covers.openlibrary.org/b/id/${covers[0]}-L.jpg`,
+              store,
+              cache,
+              createNode,
+              createNodeId,
+              reporter,
+            });
+          } else {
+            return null;
+          }
+        },
+      },
+    },
+  };
+
+  createResolvers(resolvers);
 };
